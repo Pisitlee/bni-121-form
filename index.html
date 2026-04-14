@@ -380,30 +380,32 @@
     <div id="toast"></div>
 
     <script>
-        const SHEET_URL = "https://script.google.com/macros/s/AKfycbw_MOkhpgpmXOhJmSKlqsTI-qriuoM9b0mtgOdayG7RGeUTZLtGVLOefzMyGGrXkjCzgA/exec";
-        const MEMBERS_URL = "https://script.google.com/macros/s/AKfycbwW0tsXVUN9vHV0O67eU-mkTUuqoEUngJbzqltnwDa743xc4IEcA1nRGvySF-33-jSkrQ/exec";
+        const SHEET_URL  = "https://script.google.com/macros/s/AKfycbyxGsD-j6fMJxoP_X_lLVPqq6iMfeQLjiQRclOBYZlEf5e2qNYOagD8CPEZKYdOOqS2-w/exec";
+        const MEMBERS_URL = "https://script.google.com/macros/s/AKfycbyxGsD-j6fMJxoP_X_lLVPqq6iMfeQLjiQRclOBYZlEf5e2qNYOagD8CPEZKYdOOqS2-w/exec";
 
-        // ── Load member list into dropdown ──
-        async function loadMembers() {
-            const select = document.getElementById("my-name");
-            try {
-                const res = await fetch(MEMBERS_URL);
-                const members = await res.json();
-                const saved = localStorage.getItem("my-name") || "";
-                select.innerHTML = '<option value="">-- เลือกชื่อสมาชิก --</option>';
-                members.forEach(name => {
-                    const opt = document.createElement("option");
-                    opt.value = name;
-                    opt.textContent = name;
-                    if (name === saved) opt.selected = true;
-                    select.appendChild(opt);
-                });
-            } catch (err) {
-                select.innerHTML = '<option value="">⚠️ โหลดรายชื่อไม่ได้</option>';
-            }
-            select.addEventListener("change", e => localStorage.setItem("my-name", e.target.value));
-        }
+        // ── Field IDs for Q1–Q9 (auto-populate from last record) ──
+        const AUTO_FILL_IDS = [
+            "my-q1-1","my-q1-2",
+            "my-q2-1","my-q2-2",
+            "my-q3-1","my-q3-2",
+            "my-q4-1","my-q4-2",
+            "my-q5-1",
+            "my-q6-1","my-q6-2",
+            "my-q7-1","my-q7-2","my-q7-3",
+            "my-q8-1","my-q8-2","my-q8-3",
+            "my-q9-1","my-q9-2","my-q9-3"
+        ];
 
+        const ALL_IDS = [
+            "my-name","my-date",
+            ...AUTO_FILL_IDS,
+            "my-q10-1","my-q10-2","my-q10-3",
+            "my-q11","my-q12-1","my-q12-2",
+            "my-act1-who","my-act1-when","my-act1-res",
+            "my-act2-who","my-act2-job","my-act2-res"
+        ];
+
+        // ── Toast ──
         function showToast(msg, color = "#333") {
             const toast = document.getElementById("toast");
             toast.textContent = msg;
@@ -416,27 +418,72 @@
             }, 3500);
         }
 
+        // ── Clear all fields (except date) ──
+        function clearFields(ids) {
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el || id === "my-date") return;
+                el.value = "";
+            });
+        }
+
+        // ── Load member list + populate dropdown ──
+        async function loadMembers() {
+            const select = document.getElementById("my-name");
+            try {
+                const res = await fetch(MEMBERS_URL);
+                const data = await res.json();
+                const members = data.members || data; // รองรับทั้ง format เก่าและใหม่
+                select.innerHTML = '<option value="">-- เลือกชื่อสมาชิก --</option>';
+                members.forEach(name => {
+                    const opt = document.createElement("option");
+                    opt.value = name;
+                    opt.textContent = name;
+                    select.appendChild(opt);
+                });
+            } catch (err) {
+                select.innerHTML = '<option value="">⚠️ โหลดรายชื่อไม่ได้</option>';
+            }
+
+            // เมื่อเลือกชื่อ → ดึงข้อมูลล่าสุดมาแสดง
+            select.addEventListener("change", async (e) => {
+                const name = e.target.value;
+                if (!name) {
+                    clearFields(AUTO_FILL_IDS);
+                    return;
+                }
+                showToast("⏳ กำลังโหลดข้อมูล...", "#2c7be5");
+                try {
+                    const res = await fetch(`${MEMBERS_URL}?name=${encodeURIComponent(name)}`);
+                    const data = await res.json();
+                    const record = data.lastRecord;
+                    if (record) {
+                        AUTO_FILL_IDS.forEach(id => {
+                            const el = document.getElementById(id);
+                            if (el && record[id] !== undefined) el.value = record[id];
+                        });
+                        showToast("✅ โหลดข้อมูลล่าสุดแล้ว", "#27ae60");
+                    } else {
+                        clearFields(AUTO_FILL_IDS);
+                        showToast("ℹ️ ยังไม่มีข้อมูลเก่าของสมาชิกนี้", "#e67e22");
+                    }
+                } catch (err) {
+                    showToast("⚠️ โหลดข้อมูลไม่ได้: " + err.message, "#c0392b");
+                }
+            });
+        }
+
+        // ── Submit → บันทึก record ใหม่พร้อม timestamp ใหม่เสมอ ──
         async function submitToSheet() {
             const btn = document.getElementById("btn-submit");
             btn.textContent = "⏳ กำลังส่ง...";
             btn.disabled = true;
 
-            const allIds = [
-                "my-name","my-date",
-                "my-q1-1","my-q1-2","my-q2-1","my-q2-2","my-q3-1","my-q3-2",
-                "my-q4-1","my-q4-2","my-q5-1","my-q6-1","my-q6-2",
-                "my-q7-1","my-q7-2","my-q7-3",
-                "my-q8-1","my-q8-2","my-q8-3","my-q9-1","my-q9-2","my-q9-3",
-                "my-q10-1","my-q10-2","my-q10-3","my-q11","my-q12-1","my-q12-2",
-                "my-act1-who","my-act1-when","my-act1-res","my-act2-who","my-act2-job","my-act2-res"
-            ];
-
             const data = { timestamp: new Date().toLocaleString("th-TH") };
-            allIds.forEach(id => {
+            ALL_IDS.forEach(id => {
                 const el = document.getElementById(id);
-                data[id] = el ? (el.tagName === "SELECT" ? el.value : el.value) : "";
+                data[id] = el ? el.value : "";
             });
-            // Always use current date field value
             data["my-date"] = document.getElementById("my-date").value;
 
             try {
@@ -454,23 +501,24 @@
             }
         }
 
+        // ── Init ──
         document.addEventListener("DOMContentLoaded", () => {
             loadMembers();
 
-            // Set today's date automatically
+            // วันที่ปัจจุบันอัตโนมัติ
             const today = new Date();
-            const dd = String(today.getDate()).padStart(2, '0');
-            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd   = String(today.getDate()).padStart(2, '0');
+            const mm   = String(today.getMonth() + 1).padStart(2, '0');
             const yyyy = today.getFullYear();
             document.getElementById("my-date").value = `${dd}/${mm}/${yyyy}`;
 
+            // Autosave text inputs (ยกเว้น my-date)
             const inputs = document.querySelectorAll('input[type="text"]:not(#my-date)');
             inputs.forEach(input => {
-                const saved = localStorage.getItem(input.id);
-                if (saved !== null) input.value = saved;
                 input.addEventListener('input', e => localStorage.setItem(e.target.id, e.target.value));
             });
 
+            // ปุ่มล้างข้อมูล
             document.getElementById('btn-clear').addEventListener('click', () => {
                 if (confirm('ต้องการล้างข้อมูลในฟอร์มใช่หรือไม่?')) {
                     inputs.forEach(input => input.value = '');
